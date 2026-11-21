@@ -1,13 +1,14 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fire-Fork Kitchen — Cooking Dashboard</title><style>
 :root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#24312d;background:#f5f7f3}*{box-sizing:border-box}body{margin:0}.wrap{max-width:1080px;margin:auto;padding:20px}header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.source-lines{white-space:pre-wrap}.source-lines p{margin:7px 0}.source-lines h3{margin:14px 0 6px}.source-label{font-size:12px;color:#536b5c}.google-state{padding:8px 0;font-size:13px}.secure-note{font-size:12px;color:#526c5d}.eyebrow{font-size:11px;letter-spacing:2px;color:#65766a;font-weight:800}h1{margin:4px 0;font-size:28px}h2{font-size:20px;margin:0 0 14px}h3{font-size:16px;margin:8px 0}.muted{color:#69766e;font-size:13px}.panel{background:white;border:1px solid #dfe6dd;border-radius:17px;padding:18px;margin:15px 0;box-shadow:0 2px 12px #213b2610}.tabs{display:flex;gap:8px;overflow-x:auto;padding:10px 0}.tab,button,select,input,textarea{font:inherit}button{border:0;border-radius:10px;background:#245b40;color:white;padding:11px 14px;cursor:pointer;font-weight:650}button.secondary,.tab{background:#edf3ec;color:#28513c}.tab.active{background:#245b40;color:white}.tab{white-space:nowrap}button:disabled{opacity:.45;cursor:not-allowed}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.metric{background:#eef3ed;border-radius:12px;padding:12px}.metric b{font-size:19px;display:block;margin-top:5px}.layout{display:grid;grid-template-columns:1.1fr 1fr;gap:16px}.step{display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:1px solid #e9eee7}.step input{width:20px;height:20px;accent-color:#245b40;flex-shrink:0}.step.done span{text-decoration:line-through;color:#879188}.formrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}label{font-size:12px;font-weight:700;display:block;margin-bottom:5px}input,select,textarea{width:100%;border:1px solid #cdd8ce;border-radius:9px;padding:10px;background:white;color:#25352b}textarea{min-height:78px}canvas{width:100%;height:240px;border-radius:10px;background:#fafcf9}table{border-collapse:collapse;width:100%;font-size:13px}td,th{padding:8px;text-align:left;border-bottom:1px solid #e7ece6}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.danger{background:#8e4138}.notice{padding:10px;border-radius:10px;background:#fff6df;color:#6d5421;font-size:13px}a{color:#245b40}.hide{display:none}@media(max-width:740px){.layout{grid-template-columns:1fr}.grid{grid-template-columns:repeat(3,1fr)}.formrow{grid-template-columns:repeat(2,1fr)}.wrap{padding:12px}h1{font-size:23px}}@media print{header,.tabs,.actions,.formrow,button,.no-print{display:none!important}body{background:white}.wrap{max-width:100%;padding:0}.panel{box-shadow:none;break-inside:avoid}canvas{height:180px}}
 @media(max-width:740px){.layout,.formrow{grid-template-columns:minmax(0,1fr)}.layout>div,.formrow>div,.formrow input{min-width:0}}
-</style></head><body><div class="wrap"><header><div><div class="eyebrow">FIRE-FORK KITCHEN</div><h1>Live Cooking Dashboard</h1><div class="muted">Cookbook recipes • Checklists • Temperature history • PDF reports</div></div><div class="header-actions no-print"><button id="googleBtn" class="secondary" onclick="connectGoogle()">🔒 Connect Google cookbook</button><button id="disconnectBtn" class="secondary hide" onclick="disconnectGoogle()">Disconnect Google</button><button class="secondary" onclick="changeCookbook()">Change cookbook</button><button onclick="showPicker()">+ New cook</button></div></header><div id="googleStatus" class="google-state no-print" role="status">Private Google cookbook not connected. Sign in to load your recipes.</div><div id="recovery" hidden class="no-print"><button class="secondary" onclick="document.getElementById('backupFile').click()">Import my cook backup</button> <button class="secondary" onclick="backup()">Export my cooks</button><input hidden id="backupFile" type="file" accept=".json,application/json" onchange="restoreBackup(this)"></div><div id="tabs" class="tabs"></div><main id="main"></main><div class="muted no-print" style="margin:24px 0">Cooking records and snapshots of recipes you start are stored locally in this browser, not synced across devices. Google cookbook access is read-only, requires your Google authorization, and does not grant website visitors access. Export a backup regularly. <a href="privacy.html">Privacy policy</a>.</div></div>
-<dialog id="picker" style="border:0;border-radius:18px;padding:22px;max-width:480px;width:92%;box-shadow:0 20px 90px #0005"><h2>Choose from the Lenockers’ Cookbook</h2><p class="muted">Choose a recipe from your connected cookbook.</p><div id="catalogStatus" class="muted" style="margin:8px 0"></div><input id="find" placeholder="Search recipes" oninput="drawPicker()"><div id="choices" style="max-height:350px;overflow:auto;margin:12px 0"></div><button class="secondary" onclick="picker.close()">Cancel</button></dialog>
+#printReport{display:none}@media print{body.printingReport>.wrap{display:none}body.printingReport>#printReport{display:block}#printReport tr{break-inside:avoid}}
+</style></head><body><div class="wrap"><header><div><div class="eyebrow">FIRE-FORK KITCHEN</div><h1>Live Cooking Dashboard</h1><div class="muted">Cookbook recipes • Checklists • Temperature history • PDF reports</div></div><div class="header-actions no-print"><button id="googleBtn" class="secondary" onclick="connectGoogle()">🔒 Connect Google cookbook</button><button id="disconnectBtn" class="secondary hide" onclick="disconnectGoogle()">Sign out</button><button id="newCook" hidden onclick="showPicker()">+ New cook</button></div></header><div id="googleStatus" class="google-state no-print" role="status">Private Google cookbook not connected. Sign in to load your recipes.</div><div id="recovery" hidden class="no-print"><button class="secondary" onclick="document.getElementById('backupFile').click()">Import my cook backup</button><input hidden id="backupFile" type="file" accept=".json,application/json" onchange="restoreBackup(this)"></div><div id="tabs" class="tabs"></div><main id="main"></main><div class="muted no-print" style="margin:24px 0">Unfinished cooks are saved in this browser. Reopen and sign in with the same Google account to resume. Finishing removes the cook and its recipe copy. Google cookbook access is read-only. <a href="privacy.html">Privacy policy</a>.</div></div>
+<article id="printReport"></article><dialog id="picker" style="border:0;border-radius:18px;padding:22px;max-width:480px;width:92%;box-shadow:0 20px 90px #0005"><h2>Choose from the Lenockers’ Cookbook</h2><p class="muted">Choose a recipe from your connected cookbook.</p><div id="catalogStatus" class="muted" style="margin:8px 0"></div><input id="find" placeholder="Search recipes" oninput="drawPicker()"><div id="choices" style="max-height:350px;overflow:auto;margin:12px 0"></div><button class="secondary" onclick="picker.close()">Cancel</button></dialog>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const GOOGLE_CLIENT_ID="914415616436-81agacru42ibfa089i1f228cmupe0ei7.apps.googleusercontent.com";
 const GOOGLE_SCOPES=["openid","https://www.googleapis.com/auth/spreadsheets.readonly","https://www.googleapis.com/auth/documents.readonly"];
-let GOOGLE_SHEET_ID=localStorage.getItem('fireForkIndex') || '';
+const GOOGLE_SHEET_ID='1xwrIATTmDAowgIusM3t5TrQZFBoKDvk_XeHZBoQWOKs';
 let oauthToken=null,oauthExpiresAt=0,remoteRecipes=[],googleBusy=false;
 const INDEX="";
 const recipes=[];
@@ -21,9 +22,9 @@ function readCooks(key){
  if(!Array.isArray(value.cooks))throw Error('Saved cook data could not be read.');
  return value;
 }
-/* Google authorization uses short-lived in-memory access tokens. No client secret and no private index are bundled with the public website. */
+/* Google enforces access to the configured index. Tokens stay in memory. */
 function setGoogleStatus(s){document.getElementById('googleStatus').textContent=s}
-function updateGoogleButtons(){document.getElementById('googleBtn').textContent=oauthToken?'↻ Refresh Google cookbook':'🔒 Connect Google cookbook';document.getElementById('disconnectBtn').classList.toggle('hide',!oauthToken)}
+function updateGoogleButtons(){document.getElementById('googleBtn').textContent=oauthToken?'↻ Refresh Google cookbook':'🔒 Connect Google cookbook';document.getElementById('disconnectBtn').classList.toggle('hide',!KEY&&!oauthToken)}
 function docIdFromUrl(url){return /https:\/\/docs\.google\.com\/document\/d\/([A-Za-z0-9_-]+)/.exec(url||'')?.[1]||null}
 let expiryTimer;
 function lockCookbook(){
@@ -33,55 +34,54 @@ function lockCookbook(){
  document.getElementById('picker').close();updateGoogleButtons();render();
  setGoogleStatus('Signed out. Sign in again to resume your saved cooks.');
 }
-function changeCookbook(){
- lockCookbook();GOOGLE_SHEET_ID='';connectGoogle();
+function expireAccess(){
+ clearTimeout(expiryTimer);oauthToken=null;remoteRecipes=[];oauthExpiresAt=0;
+ document.getElementById('picker').close();updateGoogleButtons();
+ setGoogleStatus(KEY?'Continue your cook. Reconnect Google to load another recipe.':'Sign in to open the family cookbook.');
 }
 function connectGoogle(){
  if(!window.google?.accounts?.oauth2){setGoogleStatus('Google sign-in is still loading or was blocked. Check your connection and try again.');return}
- if(!GOOGLE_SHEET_ID){
-  const input=prompt('Paste your Google cookbook spreadsheet link for this browser.');
-  if(!input)return;
-  try{
-   const url=new URL(input);
-   const id=url.pathname.match(/^\/spreadsheets\/d\/([\w-]+)/)?.[1];
-   if(url.origin!=='https://docs.google.com'||!id)throw Error();
-   GOOGLE_SHEET_ID=id;
-  }catch{setGoogleStatus('Enter a valid Google Sheets link.');return}
- }
- lockCookbook();const attempt=authAttempt;
+ const attempt=++authAttempt;
  const client=google.accounts.oauth2.initTokenClient({client_id:GOOGLE_CLIENT_ID,scope:GOOGLE_SCOPES.join(' '),callback:async resp=>{
   if(attempt!==authAttempt)return;
   if(resp?.error||!resp?.access_token){setGoogleStatus('Google sign-in did not complete: '+(resp?.error||'Access not granted'));return}
   if(!google.accounts.oauth2.hasGrantedAllScopes(resp,...GOOGLE_SCOPES)){setGoogleStatus('Both read-only Google Sheets and Docs permissions are needed to load cookbook recipes.');return}
+  remoteRecipes=[];document.getElementById('picker').close();
   oauthToken=resp.access_token;oauthExpiresAt=Date.now()+(Math.max(60,Number(resp.expires_in)||3600)-30)*1000;updateGoogleButtons();
-  clearTimeout(expiryTimer);expiryTimer=setTimeout(lockCookbook,oauthExpiresAt-Date.now());render();
+  clearTimeout(expiryTimer);expiryTimer=setTimeout(expireAccess,oauthExpiresAt-Date.now());
   try{
    const identity=await apiRead('https://openidconnect.googleapis.com/v1/userinfo');
    if(!identity.sub)throw Error('Google account identity unavailable.');
-   await loadGoogleIndex();
+
    if(attempt!==authAttempt)return;
    if(!navigator.locks?.request)throw Error('This browser needs Web Locks to save cooks safely. Open in Chrome over HTTPS.');
    const key='fireFork:v2:'+identity.sub+':'+GOOGLE_SHEET_ID;
-   state=readCooks(key);KEY=key;
-   localStorage.setItem('fireForkIndex',GOOGLE_SHEET_ID);
-   render();
+   await navigator.locks.request(key,()=>{
+    if(attempt!==authAttempt)return;
+    const saved=readCooks(key);
+    if(saved.cooks.some(c=>c.closed)){
+     saved.cooks=saved.cooks.filter(c=>!c.closed);storeCooks(key,saved);
+    }
+    KEY=key;state=saved;render();
+   });
+   if(attempt!==authAttempt)return;
+   try{await loadGoogleIndex()}catch(error){if(attempt===authAttempt)setGoogleStatus('Could not read the family index. Check cookbook sharing for this account. '+error.message)}
   }catch(error){
    if(attempt!==authAttempt)return;
    lockCookbook();setGoogleStatus('Could not open cookbook. '+error.message);
   }
  }});
- client.requestAccessToken();
+ client.requestAccessToken({prompt:''});
 }
 function disconnectGoogle(){
- const old=oauthToken;lockCookbook();
- if(old)google.accounts.oauth2.revoke(old,()=>{});
+ lockCookbook();
 }
 async function apiRead(url){
  if(!oauthToken||Date.now()>oauthExpiresAt)throw new Error('Google access expired. Click Connect Google cookbook to authorize again.');
  const requestToken=oauthToken;
  const res=await fetch(url,{headers:{Authorization:'Bearer '+oauthToken},cache:'no-store'});
  if(!res.ok){let message='HTTP '+res.status;try{const body=await res.json();message=body.error?.message||message}catch{}
-  if(res.status===401 && requestToken===oauthToken){lockCookbook();message='Google access expired. Click Connect Google cookbook again.'}
+  if(res.status===401 && requestToken===oauthToken){expireAccess();message='Google access expired. Click Connect Google cookbook again.'}
   throw new Error(message)}
  const data=await res.json();if(requestToken!==oauthToken||Date.now()>=oauthExpiresAt)throw Error('Sign in again.');return data;
 }
@@ -150,6 +150,17 @@ async function loadGoogleDocument(meta){
 }
 
 let writeQueue=Promise.resolve(), pendingWrites=0;
+window.addEventListener('beforeunload',event=>{
+ if(pendingWrites){event.preventDefault();event.returnValue='';}
+});
+function storeCooks(key,value){
+ if(value.cooks.length)localStorage.setItem(key,JSON.stringify(value));
+ else localStorage.removeItem(key);
+}
+function selectCook(id){
+ state.active=id;
+ return changeState(()=>{});
+}
 function changeState(edit, redraw=true){
  const key=KEY, selected=state.active;
  if(!key)return Promise.resolve(false);
@@ -159,7 +170,7 @@ function changeState(edit, redraw=true){
   const latest=readCooks(key);latest.active=selected;
   const cook=latest.cooks.find(c=>c.id===selected&&!c.closed);
   edit(latest,cook);
-  localStorage.setItem(key,JSON.stringify(latest));
+  storeCooks(key,latest);
   if(state.active!==selected)latest.active=state.active;
   state=latest;if(redraw)render();return true;
  })).catch(e=>{alert('Could not save change: '+e.message);return false;}).finally(()=>pendingWrites--);
@@ -169,15 +180,26 @@ window.addEventListener('storage',async e=>{
  if(!KEY||e.key!==KEY)return;
  await writeQueue;if(KEY!==e.key)return;
  // Keep the tab's selected cook and avoid interrupting an in-progress form.
- if(document.activeElement?.matches('input, textarea, select'))return;
- const selected=state.active;state=readCooks(KEY);state.active=selected;render();
+ const selected=state.active, latest=readCooks(KEY);
+ if(latest.cooks.some(c=>c.id===selected)&&document.activeElement?.matches('input, textarea, select'))return;
+ state=latest;state.active=selected;render();
 });
 function active(){return state.cooks.find(c=>c.id===state.active&&!c.closed)}function recipe(c){return c.snapshot||remoteRecipes.find(r=>r.id===c.recipeId)||recipes.find(r=>r.id===c.recipeId)||{id:c.recipeId,name:'Recipe unavailable — reconnect Google',category:'Cookbook',status:'Unknown',url:INDEX,equipment:'See original recipe',target:'See original recipe',serve:'Not set',ingredients:[],steps:[]}}function stepLabel(text){return String(text).replace(/^\s*(?:(?:task|step)\s*[-#]?\s*\d+\s*[:.)–—-]?\s*|\d+[.)]\s+)/i,'')}
-function esc(s){return String(s??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]))}function fmt(d){return new Date(d).toLocaleString()}function render(){document.getElementById("recovery").hidden=!KEY;if(!KEY||!oauthToken||Date.now()>=oauthExpiresAt){
+function esc(s){return String(s??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]))}function fmt(d){return new Date(d).toLocaleString()}function render(){updateGoogleButtons();document.getElementById('newCook').hidden=!KEY;document.getElementById('googleBtn').hidden=!KEY;document.getElementById("recovery").hidden=!KEY;if(!KEY){
  document.getElementById('tabs').replaceChildren();
  document.getElementById('main').innerHTML='<section class="panel"><h2>You’re signed out</h2><p>Sign in to choose a recipe or resume your saved cooks.</p><button onclick="connectGoogle()">Sign in with Google</button></section>';return;
-}const cs=state.cooks.filter(c=>!c.closed);if(!cs.length){document.getElementById('tabs').innerHTML='';document.getElementById('main').innerHTML='<div class="panel"><h2>No active cooks</h2><p>Choose a recipe to start.</p><button onclick="showPicker()">Start a cook</button></div>';return}if(!active())state.active=cs[0].id;const c=active(),r=recipe(c);document.getElementById('tabs').innerHTML=cs.map(x=>`<button class="tab ${x.id===c.id?'active':''}" onclick="state.active='${x.id}';render()">${esc(recipe(x).name)}</button>`).join('')+'<button class="tab" onclick="showPicker()">+ New</button>';
-const fullSource=r.fullLines?.length?`<section class="panel"><details id="sourceRecipe"><summary><b>Full master recipe (read-only)</b></summary><div class="source-lines">${r.fullLines.map(x=>/^(TITLE|SUBTITLE|HEADING_[1-6])$/.test(x.style)?`<h3>${esc(x.text)}</h3>`:`<p>${esc(x.text)}</p>`).join('')}</div></details></section>`:'';document.getElementById('main').innerHTML=`<section class="panel"><div class="muted">${esc(r.category)} · ${esc(r.status)}${r.version?' · '+esc(r.version):''} · ${esc(fmt(c.started))}${r.source==='Google'?' · Google Docs (read-only)':''}</div><h2>${esc(r.name)}</h2><div class="grid"><div class="metric"><span class="muted">Equipment</span><b style="font-size:14px">${esc(r.equipment)}</b></div><div class="metric"><span class="muted">Target</span><b style="font-size:14px">${esc(r.target)}</b></div><div class="metric"><span class="muted">${r.source==='Google'?'Serves / yield':'Serving'}</span><b style="font-size:14px">${esc(r.serve)}</b></div></div><div class="actions"><a href="${esc(r.url)}" target="_blank" rel="noopener"><button class="secondary">📖 Open master recipe</button></a></div></section><div class="layout"><div><section class="panel"><h2>Cooking steps <span class="muted">${c.done.length}/${r.steps.length}</span></h2>${r.steps.map((s,i)=>`<label class="step ${c.done.includes(i)?'done':''}"><input type="checkbox" ${c.done.includes(i)?'checked':''} onchange="toggle(${i},this.checked)"><span>${esc(stepLabel(s))}</span></label>`).join('')}</section><section class="panel"><h2>Ingredients</h2>${r.ingredients.length?r.ingredients.map(x=>`<div class="step">${esc(x)}</div>`).join(''):'<p class="muted">See the full original recipe below for exact ingredients.</p>'}</section>${fullSource}</div><div><section class="panel"><h2>Temperature log</h2><div class="muted">Actual readings only. Enter time, meat and/or cooker temperature.</div><canvas id="chart" width="650" height="260"></canvas><div class="formrow"><div><label>Time</label><input id="t" type="datetime-local"></div><div><label>Meat °F</label><input id="m" type="number" min="0" max="500" placeholder="165"></div><div><label>Cooker °F</label><input id="p" type="number" min="0" max="500" placeholder="225"></div><div><label>Stage</label><select id="st"><option>Big Joe</option><option>Pit Boss</option><option>Oven</option><option>Rest</option></select></div></div><div class="actions"><button onclick="addReading()">+ Log reading</button><button class="secondary" onclick="undoReading()">Undo last</button></div><div style="max-height:190px;overflow:auto"><table><thead><tr><th>Time</th><th>Meat</th><th>Cooker</th><th>Stage</th></tr></thead><tbody>${[...c.readings].reverse().map(x=>`<tr><td>${esc(new Date(x.time).toLocaleString())}</td><td>${x.meat??'—'}</td><td>${x.pit??'—'}</td><td>${esc(x.stage)}</td></tr>`).join('')}</tbody></table></div></section><section class="panel"><h2>Cook notes</h2><textarea id="notes" oninput="setNotes(this.value)" placeholder="Record bark, tenderness, family feedback...">${esc(c.notes)}</textarea></section><section class="panel"><h2>Ask ChatGPT</h2><p class="muted">Copies this recipe, progress, readings, and notes (including private recipe text if connected). Then opens ChatGPT in a new tab. Paste and send your question.</p><textarea id="ask" placeholder="What should I do next?"></textarea><div class="actions"><button onclick="handoff()">📋 Copy handoff & open ChatGPT</button></div></section></div></div><section class="panel"><h2>Finish this cook</h2><p class="muted">Your tab stays open until you choose an option. PDF uses your browser’s Print → Save as PDF.</p><div class="actions"><button onclick="finishPDF()">📄 Save to PDF & finish</button><button class="secondary" onclick="finish(false)">Finish without PDF</button><button class="secondary" onclick="backup()">Export data backup</button></div></section>`;document.getElementById('t').value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);document.getElementById('st').value=c.stage;draw([...c.readings].sort((a,b)=>Date.parse(a.time)-Date.parse(b.time)))}
+}const cs=state.cooks.filter(c=>!c.closed);if(!cs.length){document.getElementById('tabs').innerHTML='';document.getElementById('main').innerHTML='<div class="panel"><h2>No active cooks</h2><p>Choose a recipe to start.</p><button onclick="showPicker()">Start a cook</button></div>';return}if(!active())state.active=cs[0].id;const c=active(),r=recipe(c);document.getElementById('tabs').innerHTML=cs.map(x=>`<button class="tab ${x.id===c.id?'active':''}" onclick="selectCook('${x.id}')">${esc(recipe(x).name)}</button>`).join('')+'<button class="tab" onclick="showPicker()">+ New</button>';
+const fullSource=r.fullLines?.length?`<section class="panel"><details id="sourceRecipe"><summary><b>Full master recipe (read-only)</b></summary><div class="source-lines">${r.fullLines.map(x=>/^(TITLE|SUBTITLE|HEADING_[1-6])$/.test(x.style)?`<h3>${esc(x.text)}</h3>`:`<p>${esc(x.text)}</p>`).join('')}</div></details></section>`:'';document.getElementById('main').innerHTML=`<section class="panel"><div class="muted">${esc(r.category)} · ${esc(r.status)}${r.version?' · '+esc(r.version):''} · ${esc(fmt(c.started))}${r.source==='Google'?' · Google Docs (read-only)':''}</div><h2>${esc(r.name)}</h2><div class="grid"><div class="metric"><span class="muted">Equipment</span><b style="font-size:14px">${esc(r.equipment)}</b></div><div class="metric"><span class="muted">Target</span><b style="font-size:14px">${esc(r.target)}</b></div><div class="metric"><span class="muted">${r.source==='Google'?'Serves / yield':'Serving'}</span><b style="font-size:14px">${esc(r.serve)}</b></div></div><div class="actions"><a href="${esc(r.url)}" target="_blank" rel="noopener"><button class="secondary">📖 Open master recipe</button></a></div></section><div class="layout"><div><section class="panel"><h2>Cooking steps <span class="muted">${c.done.length}/${r.steps.length}</span></h2>${r.steps.map((s,i)=>`<label class="step ${c.done.includes(i)?'done':''}"><input type="checkbox" ${c.done.includes(i)?'checked':''} onchange="toggle(${i},this.checked)"><span>${esc(stepLabel(s))}</span></label>`).join('')}</section><section class="panel"><h2>Ingredients</h2>${r.ingredients.length?r.ingredients.map(x=>`<div class="step">${esc(x)}</div>`).join(''):'<p class="muted">See the full original recipe below for exact ingredients.</p>'}</section>${fullSource}</div><div><section class="panel"><h2>Temperature log</h2><div class="muted">Actual readings only. Enter time, meat and/or cooker temperature.</div><canvas id="chart" width="650" height="260"></canvas><div class="formrow"><div><label>Time</label><input id="t" type="datetime-local"></div><div><label>Meat °F</label><input id="m" type="number" min="0" max="500" placeholder="165"></div><div><label>Cooker °F</label><input id="p" type="number" min="0" max="500" placeholder="225"></div><div><label>Stage</label><select id="st"><option>Big Joe</option><option>Pit Boss</option><option>Oven</option><option>Rest</option></select></div></div><div class="actions"><button onclick="addReading()">+ Log reading</button><button class="secondary" onclick="undoReading()">Undo last</button></div><div style="max-height:190px;overflow:auto"><table><thead><tr><th>Time</th><th>Meat</th><th>Cooker</th><th>Stage</th></tr></thead><tbody>${[...c.readings].reverse().map(x=>`<tr><td>${esc(new Date(x.time).toLocaleString())}</td><td>${x.meat??'—'}</td><td>${x.pit??'—'}</td><td>${esc(x.stage)}</td></tr>`).join('')}</tbody></table></div></section><section class="panel"><h2>Cook notes</h2><textarea id="notes" oninput="setNotes(this.value)" placeholder="Record bark, tenderness, family feedback...">${esc(c.notes)}</textarea></section><section class="panel"><h2>Ask ChatGPT</h2><p class="muted">Copies this recipe, progress, readings, and notes (including private recipe text if connected). Then opens ChatGPT in a new tab. Paste and send your question.</p><textarea id="ask" placeholder="What should I do next?"></textarea><div class="actions"><button onclick="handoff()">📋 Copy handoff & open ChatGPT</button></div></section></div></div><section class="panel"><h2>Finish this cook</h2><p class="muted">Closing the browser keeps this unfinished cook. Either finish option removes its browser copy. To keep a report, choose Save as PDF in the print dialog.</p><div class="actions"><button onclick="finishPDF()">📄 Save to PDF & finish</button><button class="secondary" onclick="finish(false)">Close without PDF</button></div></section>`;const draft=c.draft||{};
+ for(const id of ['t','m','p','st','ask']){
+  const field=document.getElementById(id);
+  const fallback=id==='t'?new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16):id==='st'?c.stage:'';
+  field.value=draft[id]??fallback;
+  field.oninput=()=>{
+   const value=field.value,time=document.getElementById('t').value;
+   changeState((_,current)=>{if(current)current.draft={...current.draft,t:time,[id]:value}},false);
+  };
+ }
+ draw([...c.readings].sort((a,b)=>Date.parse(a.time)-Date.parse(b.time)))}
 function toggle(i,on){
  return changeState((_,c)=>{if(!c)throw Error('This cook has closed.');c.done=c.done.filter(n=>n!==i);if(on)c.done.push(i);});
 }
@@ -202,7 +224,7 @@ function addReading(){
   alert('Enter a valid time and at least one temperature (0–500°F).');return;
  }
  const reading={id:crypto.randomUUID(),time:new Date(time).toISOString(),meat:m===''?null:+m,pit:p===''?null:+p,stage};
- return changeState((_,c)=>{if(!c)throw Error('This cook has closed.');c.readings.push(reading);c.stage=stage;});
+ return changeState((_,c)=>{if(!c)throw Error('This cook has closed.');c.readings.push(reading);c.stage=stage;c.draft={ask:c.draft?.ask||''};});
 }
 function undoReading(){
  const last=active()?.readings.at(-1);
@@ -214,7 +236,24 @@ function undoReading(){
 }
 function draw(rs){const can=document.getElementById('chart'),ctx=can.getContext('2d'),w=can.width,h=can.height;ctx.clearRect(0,0,w,h);ctx.fillStyle='#fafcf9';ctx.fillRect(0,0,w,h);const l=48,r=w-20,t=20,b=h-35;ctx.font='13px system-ui';ctx.strokeStyle='#dfe6dd';ctx.fillStyle='#627267';for(let v=0;v<=500;v+=100){let y=b-v/500*(b-t);ctx.beginPath();ctx.moveTo(l,y);ctx.lineTo(r,y);ctx.stroke();ctx.fillText(v+'°',7,y+4)}if(!rs.length){ctx.fillText('No measured temperatures yet — add your first reading.',75,120);return}let xs=rs.map(x=>new Date(x.time).getTime()),min=Math.min(...xs),max=Math.max(...xs);if(min===max)max=min+3600000;for(let [key,color] of [['meat','#b65c35'],['pit','#28684b']]){ctx.strokeStyle=color;ctx.lineWidth=3;ctx.beginPath();let started=false;rs.forEach((x,i)=>{if(x[key]===null){started=false;return}let px=l+(xs[i]-min)/(max-min)*(r-l),py=b-Math.min(500,x[key])/500*(b-t);if(!started){ctx.moveTo(px,py);started=true}else ctx.lineTo(px,py)});ctx.stroke();ctx.fillStyle=color;rs.forEach((x,i)=>{if(x[key]===null)return;let px=l+(xs[i]-min)/(max-min)*(r-l),py=b-Math.min(500,x[key])/500*(b-t);ctx.beginPath();ctx.arc(px,py,4,0,7);ctx.fill()})}ctx.fillStyle='#b65c35';ctx.fillText('● Meat',l,b+25);ctx.fillStyle='#28684b';ctx.fillText('● Cooker',l+100,b+25);ctx.fillStyle='#627267';ctx.fillText(new Date(min).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}),l,t+8);ctx.fillText(new Date(max).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}),r-90,t+8)}
 async function handoff(){const c=active(),r=recipe(c),q=document.getElementById('ask').value;const s=`The Lenockers' Kitchen — LIVE COOK HANDOFF\nRecipe: ${r.name}\nMaster recipe: ${r.url}\nEquipment: ${r.equipment}\nStarted: ${fmt(c.started)}\nCompleted steps: ${c.done.map(i=>r.steps[i]).join('; ')}\nPending steps: ${r.steps.filter((x,i)=>!c.done.includes(i)).join('; ')}\nActual temperature readings (°F):\n${c.readings.map(x=>`${fmt(x.time)} | meat ${x.meat??'not recorded'} | cooker ${x.pit??'not recorded'} | ${x.stage}`).join('\n')||'No measured readings logged'}\nNotes: ${c.notes}\nRecipe ingredients: ${r.ingredients.join('; ')||'See original'}\nFull recipe text: ${(r.fullLines||[]).map(x=>x.text).join('\n').slice(0,16000)||'See original Google Doc'}\nDietary guidance: Follow the selected recipe and any restrictions the cook provides.\nCoach one step at a time and distinguish actual readings from targets.\nQuestion: ${q||'What should I do next?'}`;try{await navigator.clipboard.writeText(s);alert('Cooking handoff copied. ChatGPT will open; paste and send it.')}catch{prompt('Copy this cooking handoff:',s)}window.open('https://chatgpt.com/','_blank','noopener')}
-function finishPDF(){const detail=document.getElementById('sourceRecipe');if(detail)detail.open=true;window.print();if(confirm('After saving or printing your PDF, close this cook tab?'))finish(true)}function finish(withPDF){if(!withPDF&&!confirm('Finish this cook and close its tab? A local history copy will remain in the data backup.'))return;return changeState((latest,cook)=>{if(!cook)return;cook.finished=new Date().toISOString();cook.closed=true;latest.active=null;})}async function backup(){await writeQueue;if(!KEY)return;const data=readCooks(KEY);const blob=new Blob([JSON.stringify({exported:new Date().toISOString(),state:data,recipes},null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='lenockers-kitchen-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}function recoverCooks(data){
+async function finishPDF(){
+ await writeQueue;
+ const c=active();if(!c)return;
+ const r=recipe(c), report=document.getElementById('printReport');
+ const cell=value=>'<td>'+esc(value)+'</td>';
+ report.innerHTML='<h1>'+esc(r.name)+'</h1><p>Started '+esc(fmt(c.started))+' · Report created '+esc(fmt(new Date()))+'</p><p>Steps completed: '+c.done.length+' / '+r.steps.length+'</p><h2>Temperature log</h2><table><thead><tr><th>Time</th><th>Meat °F</th><th>Cooker °F</th><th>Stage</th></tr></thead><tbody>'+c.readings.map(x=>'<tr>'+[fmt(x.time),x.meat??'—',x.pit??'—',x.stage].map(cell).join('')+'</tr>').join('')+'</tbody></table><h2>Cook notes</h2><p style="white-space:pre-wrap">'+esc(c.notes)+'</p>';
+ document.body.classList.add('printingReport');
+ try{window.print()}finally{document.body.classList.remove('printingReport');report.replaceChildren()}
+ if(active()?.id===c.id && confirm('Did your PDF save successfully? OK closes this cook and removes its browser copy. Cancel keeps cooking.'))await finish(true);
+}
+function finish(withPDF){
+ if(!withPDF&&!confirm('Close this cook and discard its progress?'))return;
+ return changeState((latest,cook)=>{
+  if(!cook)return;
+  latest.cooks=latest.cooks.filter(c=>c.id!==cook.id);latest.active=latest.cooks.find(c=>!c.closed)?.id||null;
+ });
+}
+function recoverCooks(data){
  if(!Array.isArray(data?.state?.cooks))throw Error('Choose a Fire-Fork Kitchen JSON backup.');
  const catalog=Array.isArray(data.recipes)?data.recipes:[];
  return data.state.cooks.map(c=>{
@@ -235,11 +274,11 @@ async function restoreBackup(input){
   let added=0;
   if(await changeState(latest=>{
    const existing=new Set(latest.cooks.map(c=>c.id));
-   for(const c of cooks)if(!existing.has(c.id)){latest.cooks.push(c);existing.add(c.id);added++;}
+   for(const c of cooks)if(!c.closed&&!existing.has(c.id)){latest.cooks.push(c);existing.add(c.id);added++;}
   }))setGoogleStatus('Imported '+added+' cooks. Existing cooks were kept.');
  }catch(e){alert('Could not import backup: '+e.message);}
 }
-function showPicker(){if(!KEY||!oauthToken||Date.now()>=oauthExpiresAt){lockCookbook();connectGoogle();return}document.getElementById('picker').showModal();drawPicker()}function drawPicker(){
+function showPicker(){if(!KEY||!oauthToken||Date.now()>=oauthExpiresAt){connectGoogle();return}document.getElementById('picker').showModal();drawPicker()}function drawPicker(){
  const s=document.getElementById('find').value.toLowerCase();
  const catalog=[...remoteRecipes,...recipes.filter(r=>!remoteRecipes.some(g=>g.docId&&g.docId===docIdFromUrl(r.url)))];
  document.getElementById('catalogStatus').textContent=oauthToken?`Google cookbook connected: ${remoteRecipes.length} linked recipes. Selecting one loads its original Google Doc.`:'Google cookbook not connected. Sign in again.';
@@ -260,6 +299,6 @@ async function start(id){
  if(r.source==='Google') c.snapshot=r;
  if(!await changeState(latest=>{latest.cooks.push(c);latest.active=c.id;}))return;document.getElementById('picker').close();setGoogleStatus(oauthToken?`Google cookbook connected. ${remoteRecipes.length} linked recipes available.`:'Google cookbook not connected.');render();
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden && oauthToken && Date.now()>=oauthExpiresAt)lockCookbook()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden && oauthToken && Date.now()>=oauthExpiresAt)expireAccess()});
 render();
 </script></body></html>
