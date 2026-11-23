@@ -11,6 +11,7 @@ const GOOGLE_SCOPES=["openid","https://www.googleapis.com/auth/spreadsheets.read
 const GOOGLE_SHEET_ID='1xwrIATTmDAowgIusM3t5TrQZFBoKDvk_XeHZBoQWOKs';
 let oauthToken=null,oauthExpiresAt=0,remoteRecipes=[],googleBusy=false;
 const INDEX="";
+const RECIPE_READER_VERSION = '2026-11-23-step-fix';
 const recipes=[];
 let KEY=null, authAttempt=0;
 const emptyState=()=>({active:null,cooks:[]});
@@ -20,16 +21,25 @@ function readCooks(key){
  if(!raw)return emptyState();
  const value=JSON.parse(raw);
  if(!Array.isArray(value.cooks))throw Error('Saved cook data could not be read.');
- for(const cook of value.cooks){
-  const snapshot=cook.snapshot;
-  if(snapshot?.steps?.length!==1 || snapshot.steps[0]!==missingSteps || !Array.isArray(snapshot.fullLines))continue;
-  const parsed=parseRecipeLines(snapshot.fullLines);
-  if(parsed.steps.length){
-   Object.assign(snapshot,parsed);
-   cook.done=[]; // A check on the old placeholder does not identify a completed step.
-  }
- }
+ for(const cook of value.cooks)repairCookSnapshot(cook);
  return value;
+}
+function repairCookSnapshot(cook){
+ const snapshot=cook.snapshot;
+ if(!snapshot||snapshot.readerVersion===RECIPE_READER_VERSION||!Array.isArray(snapshot.fullLines))return cook;
+ const parsed=parseRecipeLines(snapshot.fullLines);
+ if(!parsed.steps.length)return cook;
+ const identity=step=>stepText(step).replace(/^\s*(?:[•*–-]\s+|\d+[.)]\s+|(?:step|task)\s*[-#]?\s*\d+\s*[:.)–—-]?\s*)/i,'').replace(/\s+/g,' ').trim();
+ const oldSteps=Array.isArray(snapshot.steps)?snapshot.steps:[],oldCounts=new Map(),newCounts=new Map(),completed=new Set();
+ for(const step of oldSteps){const key=identity(step);oldCounts.set(key,(oldCounts.get(key)||0)+1)}
+ for(const step of parsed.steps){const key=identity(step);newCounts.set(key,(newCounts.get(key)||0)+1)}
+ for(const index of Array.isArray(cook.done)?cook.done:[]){
+  if(Number.isInteger(index)&&index>=0&&index<oldSteps.length&&stepText(oldSteps[index])!==missingSteps)completed.add(identity(oldSteps[index]));
+ }
+ // Keep completion only when the old and new actions have one unambiguous text match.
+ cook.done=parsed.steps.flatMap((step,index)=>{const key=identity(step);return completed.has(key)&&oldCounts.get(key)===1&&newCounts.get(key)===1?[index]:[]});
+ Object.assign(snapshot,parsed,{readerVersion:RECIPE_READER_VERSION});
+ return cook;
 }
 /* Google enforces access to the configured index. Tokens stay in memory. */
 function setGoogleStatus(s){document.getElementById('googleStatus').textContent=s}
@@ -69,8 +79,9 @@ function connectGoogle(){
     if(attempt!==authAttempt)return;
     const saved=readCooks(key);
     if(saved.cooks.some(c=>c.closed)){
-     saved.cooks=saved.cooks.filter(c=>!c.closed);storeCooks(key,saved);
+     saved.cooks=saved.cooks.filter(c=>!c.closed);
     }
+    storeCooks(key,saved);
     KEY=key;state=saved;render();
    });
    if(attempt!==authAttempt)return;
@@ -114,52 +125,133 @@ async function loadGoogleIndex(){
   updateGoogleButtons();if(document.getElementById('picker').open)drawPicker();
  }catch(e){throw e}
 }
-function collectDocContent(content,lines){
+function collectDocContent(content,lines,lists={},counters=new Map()){
  for(const item of content||[]){
-  if(item.paragraph){const p=item.paragraph,rawRuns=(p.elements||[]).filter(e=>e.textRun).map(e=>({text:e.textRun.content||'',bold:!!e.textRun.textStyle?.bold})),raw=rawRuns.map(run=>run.text).join('').replace(/\n$/,''),text=raw.trim();if(text){const start=raw.length-raw.trimStart().length,end=raw.trimEnd().length;let offset=0;const runs=rawRuns.map(run=>{const from=offset;offset+=run.text.length;return {...run,text:run.text.slice(Math.max(0,start-from),Math.max(0,Math.min(run.text.length,end-from)))}}).filter(run=>run.text);const bullet=p.bullet&&!/^[•*-]\s/.test(text),prefix=bullet?[{text:'• ',bold:false}]:[];lines.push({text:(bullet?'• ':'')+text,runs:[...prefix,...runs],style:p.paragraphStyle?.namedStyleType||'NORMAL_TEXT'})}}
-  if(item.table)for(const row of item.table.tableRows||[])for(const cell of row.tableCells||[])collectDocContent(cell.content,lines);
-  if(item.tableOfContents)collectDocContent(item.tableOfContents.content,lines);
+  if(item.paragraph){
+   const p=item.paragraph,rawRuns=(p.elements||[]).filter(e=>e.textRun).map(e=>({text:e.textRun.content||'',bold:!!e.textRun.textStyle?.bold}));
+   const raw=rawRuns.map(run=>run.text).join('').replace(/\n$/,''),text=raw.trim();
+   if(text){
+    const start=raw.length-raw.trimStart().length,end=raw.trimEnd().length;let offset=0;
+    const runs=rawRuns.map(run=>{const from=offset;offset+=run.text.length;return {...run,text:run.text.slice(Math.max(0,start-from),Math.max(0,Math.min(run.text.length,end-from)))}}).filter(run=>run.text);
+    const line={text,runs,style:p.paragraphStyle?.namedStyleType||'NORMAL_TEXT'};
+    if(p.bullet){
+     const level=p.bullet.nestingLevel||0,listId=p.bullet.listId,definition=lists?.[listId]?.listProperties?.nestingLevels?.[level]||{};
+     const kind=definition.glyphType&&definition.glyphType!=='GLYPH_TYPE_UNSPECIFIED'?'ordered':'bullet',key=listId+':'+level;
+     const number=counters.has(key)?counters.get(key)+1:Number(definition.startNumber)||1;counters.set(key,number);
+     line.list={kind,listId,nestingLevel:level,...(kind==='ordered'?{number}:{})};
+    }
+    lines.push(line);
+   }
+  }
+  if(item.table)for(const row of item.table.tableRows||[])for(const cell of row.tableCells||[])collectDocContent(cell.content,lines,lists,counters);
+  if(item.tableOfContents)collectDocContent(item.tableOfContents.content,lines,lists,counters);
  }
 }
 function getGoogleDocLines(doc){
- let lines=[];
- const visit=tab=>{const title=tab.tabProperties?.title;if(title&&doc.tabs.length>1)lines.push({text:'Tab: '+title,style:'HEADING_2'});collectDocContent(tab.documentTab?.body?.content,lines);(tab.childTabs||[]).forEach(visit)};
- if(doc.tabs?.length)doc.tabs.forEach(visit);else collectDocContent(doc.body?.content,lines);
+ const tabs=[],seen=new Set();
+ const visit=tab=>{const id=tab.tabProperties?.tabId||tab.tabId;if(id&&seen.has(id))return;if(id)seen.add(id);tabs.push(tab);(tab.childTabs||[]).forEach(visit)};
+ (doc.tabs||[]).forEach(visit);
+ const recipeTabs=tabs.filter(tab=>/^recipe$/i.test(String(tab.tabProperties?.title??tab.title??'').trim()));
+ if(recipeTabs.length>1||(!recipeTabs.length&&tabs.length>1))throw Error('This document needs one clearly named Recipe tab. Open the master recipe to choose the current instructions.');
+ const selected=recipeTabs[0]||tabs[0],body=selected?(selected.documentTab||selected):doc,lines=[];
+ collectDocContent(body.body?.content,lines,body.lists||doc.lists||{});
  return lines;
 }
 const missingSteps='Follow the full master recipe using the link below; no numbered instructions were identified.';
-function parseRecipeLines(lines){
- const ingredients=[],steps=[];
- let mode='other';
- for(const line of lines){
-  const t=line.text.trim();if(!t)continue;
+function currentRecipeLines(lines){
+ const markers=lines.map((line,index)=>/^Tab:\s*/i.test(line.text||'')?index:-1).filter(index=>index>=0);
+ if(!markers.length)return lines;
+ const recipes=markers.filter(index=>/^Tab:\s*Recipe\s*$/i.test(lines[index].text));
+ if(recipes.length>1||(!recipes.length&&markers.length>1))return [];
+ const start=recipes[0]??markers[0],end=markers.find(index=>index>start)??lines.length;
+ return lines.slice(start+1,end);
+}
+function parseRecipeLines(sourceLines){
+ const lines=currentRecipeLines(sourceLines),ingredients=[],steps=[],ingredientBlocks=[],cookingBlocks=[];
+ let mode='other',sectionLevel=2,phase='',phaseNumber=0,listedActions=false;
+ const ingredientHeading=/^(?:approved\s+v[\d.]+\s+)?ingredients?(?=\s*(?:\(\s*\d+\s*\)|[:—–-]|$))/i;
+ const methodHeading=/^(?:approved\s+v[\d.]+\s+)?(?:cooking\s+steps|instructions?|method|directions|procedure|steps|preparation)(?=\s*(?:[:—–-]|$))/i;
+ const ancillary=/^(?:ingredient notes?|notes\b|equipment\b|recipe-specific notes\b|actual test observations\b|proposed v\d|storage\b|safety\b|tips\b|results\b|research\b|goal\b|family\b|user-supplied\b|optional dietary swaps\b|who can eat it\b|at a glance\b|cook['’]?s tip\b)/i;
+ const markedAction=line=>!!line.list||/^\s*(?:[•*-]\s+|\d+[.)]\s+|(?:step|task)\s*[-#]?\s*\d+\s*[:.)–—-]?\s+)/i.test(line.text||'');
+ const usesList=(start,level)=>{
+  for(let index=start+1;index<lines.length;index++){
+   const line=lines[index],text=String(line.text||'').trim(),depth=Number(/^HEADING_([1-6])$/.exec(line.style)?.[1]||0);
+   if((depth&&depth<=level)||ingredientHeading.test(text)||methodHeading.test(text)||/^HISTORICAL RESEARCH/i.test(text))break;
+   if(markedAction(line))return true;
+  }
+  return false;
+ };
+ for(let index=0;index<lines.length;index++){
+  const line=lines[index],t=String(line.text||'').trim();if(!t)continue;
   if(/^HISTORICAL RESEARCH AND ORIGINAL PROPOSED PLAN/i.test(t))break;
-  const heading=/^(TITLE|SUBTITLE|HEADING_[1-6])$/.test(line.style);
-  const phase=/^(?:(?:morning|evening|overnight) prep|oven cooking|saucing (?:&|and) finish|rest (?:&|and) serve)$/i.test(t);
-  if(phase){mode='steps';continue}
-  if(/^recipe-specific notes$/i.test(t)){mode='other';continue}
-  if(/^(ACTUAL TEST OBSERVATIONS|PROPOSED v[0-9]+)/i.test(t)){mode='other';continue}
-  if(heading||/^(?:approved\s+v[\d.]+\s+)?(?:ingredients?|method|instructions?|directions|procedure|steps|preparation)(?:\s*$|\s*[:—–-])/i.test(t)||(/^[A-Z][A-Z\s–—/&:()'-]{3,}$/.test(t)&&t.length<85)){
-   if(/^(?:APPROVED v[0-9]+ )?INGREDIENTS?\b/i.test(t))mode='ingredients';
-   else if(/^(?:APPROVED v[0-9]+ )?(INSTRUCTIONS?|METHOD|DIRECTIONS|PROCEDURE|STEPS|PREPARATION)\b/i.test(t))mode='steps';
-   else if(/^(ACTUAL TEST OBSERVATIONS|PROPOSED v[0-9]+|SUCCESS|NOTES|STORAGE|SERVING|SAFETY|TIPS|OPTIONAL|EQUIPMENT|RESULTS|RESEARCH|GOAL|FAMILY|USER-SUPPLIED)/i.test(t)||(heading&&mode!=='ingredients'))mode='other';
+  const level=Number(/^HEADING_([1-6])$/.exec(line.style)?.[1]||0),heading=!!level||/^(TITLE|SUBTITLE)$/.test(line.style);
+  const runs=line.runs||[{text:t,bold:false}];
+  if(ingredientHeading.test(t)){mode='ingredients';sectionLevel=level||2;continue}
+  if(methodHeading.test(t)){mode='steps';sectionLevel=level||2;phase='';phaseNumber=0;listedActions=usesList(index,sectionLevel);continue}
+  if(ancillary.test(t)&&(heading||!markedAction(line))){
+   mode=mode==='steps'||mode==='notes'?'notes':'other';
+   if(mode==='notes')cookingBlocks.push({kind:heading?'heading':'note',text:t,runs});
    continue;
   }
-  if(mode==='ingredients'){ingredients.push(t);continue}
-  if(mode==='steps'){
-   if(/^\d+[.)]\s+/.test(t))steps.push({text:t,runs:line.runs||[{text:t,bold:false}]});
-   else if(!heading&&!/^\s*[-•*]/.test(t))steps.push({text:t,runs:line.runs||[{text:t,bold:false}]});
-   else if(/^\s*[-•*]/.test(t))steps.push({text:t,runs:line.runs||[{text:t,bold:false}]});
+  const legacyPhase=/^(?:(?:morning|evening|overnight) prep|oven cooking|saucing (?:&|and) finish|rest (?:&|and) serve)$/i.test(t);
+  if(legacyPhase&&mode!=='ingredients'){
+   mode='steps';phase=t;phaseNumber=0;listedActions=usesList(index,level||3);cookingBlocks.push({kind:'heading',text:t,runs});continue;
   }
+  if(heading){
+   if(level>sectionLevel&&mode==='ingredients')ingredientBlocks.push({kind:'heading',text:t,runs});
+   else if(level>sectionLevel&&(mode==='steps'||mode==='notes')){
+    phase=t;phaseNumber=0;cookingBlocks.push({kind:'heading',text:t,runs});
+   }else mode='other';
+   continue;
+  }
+  if(mode==='ingredients'){ingredients.push(t);ingredientBlocks.push({kind:'ingredient',text:t,runs});continue}
+  if(mode==='steps'){
+   if(listedActions&&!markedAction(line)){cookingBlocks.push({kind:'note',text:t,runs});continue}
+   phaseNumber++;
+   const typedNumber=/^\s*(?:step\s*)?(\d+)[.)]\s+/i.exec(t),number=line.list?.kind==='ordered'?line.list.number:typedNumber?Number(typedNumber[1]):phaseNumber;
+   cookingBlocks.push({kind:'step',index:steps.length});steps.push({text:t,runs,phase,number});
+  }else if(mode==='notes')cookingBlocks.push({kind:'note',text:t,runs});
  }
- return {ingredients,steps};
+ return {ingredients,steps,ingredientBlocks,cookingBlocks,fullLines:lines};
 }
 async function loadGoogleDocument(meta){
  const doc=await apiRead('https://docs.googleapis.com/v1/documents/'+encodeURIComponent(meta.docId)+'?includeTabsContent=true');
  const fullLines=getGoogleDocLines(doc);
  if(!fullLines.length)throw new Error('This Google Doc did not contain readable text. Open the original recipe instead.');
  const parsed=parseRecipeLines(fullLines);
- return {...meta,docTitle:doc.title,fullLines,ingredients:parsed.ingredients,steps:parsed.steps.length?parsed.steps:[missingSteps]};
+ if(!parsed.steps.length)throw new Error('No cooking steps could be identified. Open the master recipe to review its Cooking steps section.');
+ return {...meta,docTitle:doc.title,...parsed,readerVersion:RECIPE_READER_VERSION};
+}
+
+function renderIngredients(r){
+ if(!r.ingredients.length)return '<p class="muted">See the full original recipe below for exact ingredients.</p>';
+ const candidates=Array.isArray(r.ingredientBlocks)?r.ingredientBlocks:[];
+ const valid=candidates.length&&candidates.every(block=>block&&['heading','ingredient'].includes(block.kind)&&typeof block.text==='string'&&(!block.runs||(Array.isArray(block.runs)&&block.runs.every(run=>run&&typeof run.text==='string'))));
+ const entries=valid?candidates.filter(block=>block.kind==='ingredient'):[];
+ const blocks=valid&&entries.length===r.ingredients.length&&entries.every((block,index)=>block.text===r.ingredients[index])?candidates:r.ingredients.map(text=>({kind:'ingredient',text}));
+ return blocks.map(block=>block.kind==='heading'?'<h3>'+esc(block.text)+'</h3>':'<div class="step">'+renderRichText(block.runs,block.text)+'</div>').join('');
+}
+function renderCookingSteps(r,c){
+ if(!r.steps.length||(r.steps.length===1&&stepText(r.steps[0])===missingSteps))return '<p class="notice">Cooking steps could not be identified. Open the master recipe to read the complete instructions.</p>';
+ const action=index=>{
+  if(!Number.isInteger(index)||index<0||index>=r.steps.length)return '';
+  const step=r.steps[index],number=Number.isInteger(step?.number)&&step.number>0?'<span aria-hidden="true">'+step.number+'.</span>':'';
+  return '<label class="step '+(c.done.includes(index)?'done':'')+'"><input type="checkbox" '+(c.done.includes(index)?'checked':'')+' onchange="toggle('+index+',this.checked)">'+number+'<span>'+renderRecipeStep(step)+'</span></label>';
+ };
+ const blocks=Array.isArray(r.cookingBlocks)?r.cookingBlocks:[],indexes=blocks.filter(block=>block?.kind==='step').map(block=>block.index);
+ const valid=indexes.length===r.steps.length&&new Set(indexes).size===r.steps.length&&indexes.every(index=>Number.isInteger(index)&&index>=0&&index<r.steps.length);
+ if(!valid)return r.steps.map((step,index)=>action(index)).join('');
+ return blocks.map(block=>block?.kind==='step'?action(block.index):block?.kind==='heading'?'<h3>'+esc(block.text)+'</h3>':block?.kind==='note'?'<p>'+renderRichText(block.runs,block.text)+'</p>':'').join('');
+}
+function cookingProgress(r,c){
+ if(!r.steps.length||(r.steps.length===1&&stepText(r.steps[0])===missingSteps))return '';
+ return new Set(c.done.filter(index=>Number.isInteger(index)&&index>=0&&index<r.steps.length)).size+'/'+r.steps.length;
+}
+function renderSourceLine(line){
+ const text=renderRichText(line.runs,line.text);
+ if(/^(TITLE|SUBTITLE|HEADING_[1-6])$/.test(line.style))return '<h3>'+text+'</h3>';
+ const marker=line.list?.kind==='ordered'&&Number.isInteger(line.list.number)?line.list.number+'. ':line.list?'• ':'';
+ return '<p>'+marker+text+'</p>';
 }
 
 let writeQueue=Promise.resolve(), pendingWrites=0;
@@ -197,12 +289,12 @@ window.addEventListener('storage',async e=>{
  if(latest.cooks.some(c=>c.id===selected)&&document.activeElement?.matches('input, textarea, select'))return;
  state=latest;state.active=selected;render();
 });
-function active(){return state.cooks.find(c=>c.id===state.active&&!c.closed)}function recipe(c){return c.snapshot||remoteRecipes.find(r=>r.id===c.recipeId)||recipes.find(r=>r.id===c.recipeId)||{id:c.recipeId,name:'Recipe unavailable — reconnect Google',category:'Cookbook',status:'Unknown',url:INDEX,equipment:'See original recipe',target:'See original recipe',serve:'Not set',ingredients:[],steps:[]}}function stepText(step){return typeof step==='string'?step:String(step?.text||'')}function stepLabel(step){return stepText(step).replace(/^\s*(?:(?:task|step)\s*[-#]?\s*\d+\s*[:.)–—-]?\s*|\d+[.)]\s+)/i,'')}function renderRichText(runs,text,emphasizeCookingValues){const source=Array.isArray(runs)&&runs.length?runs:[{text:String(text??''),bold:false}],flat=source.map(run=>String(run.text||'')).join(''),ranges=[];if(emphasizeCookingValues){const pattern=/(?:\b\d{1,2}:\d{2}(?:\s?[ap]\.?m\.?)?\b|\b\d+(?:\.\d+)?\s*(?:to|[-\u2013\u2014])\s*\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)\b|\b\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)\b|\b\d{2,3}(?:\s*(?:to|[-\u2013\u2014])\s*\d{2,3})?\s*(?:\u00b0\s*[FC]\b|degrees?\s*[FC]?\b|[FC]\b))/gi;for(const match of flat.matchAll(pattern))ranges.push([match.index,match.index+match[0].length])}let out='',offset=0;for(const run of source){const end=offset+String(run.text||'').length,points=[offset,end];for(const [start,finish] of ranges){if(start>offset&&start<end)points.push(start);if(finish>offset&&finish<end)points.push(finish)}points.sort((a,b)=>a-b);for(let i=0;i<points.length-1;i++){const start=points[i],finish=points[i+1],value=flat.slice(start,finish),bold=!!run.bold||ranges.some(([x,y])=>x<finish&&y>start);out+=bold?'<strong>'+esc(value)+'</strong>':esc(value)}offset=end}return out}function renderRecipeStep(step){const original=stepText(step),label=stepLabel(step),remove=original.length-label.length;let skipped=0;const runs=(typeof step==='object'&&Array.isArray(step.runs)?step.runs:[{text:original,bold:false}]).map(run=>{const text=String(run.text||''),drop=Math.min(text.length,Math.max(0,remove-skipped));skipped+=text.length;return {...run,text:text.slice(drop)}});return renderRichText(runs,label,true)}
+function active(){return state.cooks.find(c=>c.id===state.active&&!c.closed)}function recipe(c){return c.snapshot||remoteRecipes.find(r=>r.id===c.recipeId)||recipes.find(r=>r.id===c.recipeId)||{id:c.recipeId,name:'Recipe unavailable — reconnect Google',category:'Cookbook',status:'Unknown',url:INDEX,equipment:'See original recipe',target:'See original recipe',serve:'Not set',ingredients:[],steps:[]}}function stepText(step){return typeof step==='string'?step:String(step?.text||'')}function stepLabel(step){return stepText(step).replace(/^\s*(?:(?:task|step)\s*[-#]?\s*\d+\s*[:.)–—-]?\s*|\d+[.)]\s+|[•*–-]\s+)/i,'')}function renderRichText(runs,text,emphasizeCookingValues){const source=Array.isArray(runs)&&runs.length?runs:[{text:String(text??''),bold:false}],flat=source.map(run=>String(run.text||'')).join(''),ranges=[];if(emphasizeCookingValues){const pattern=/(?:\b\d{1,2}:\d{2}(?:\s?[ap]\.?m\.?)?\b|\b\d+(?:\.\d+)?\s*(?:to|[-\u2013\u2014])\s*\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)\b|\b\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)\b|\b\d{2,3}(?:\s*(?:to|[-\u2013\u2014])\s*\d{2,3})?\s*(?:\u00b0\s*[FC]\b|degrees?\s*[FC]?\b|[FC]\b))/gi;for(const match of flat.matchAll(pattern))ranges.push([match.index,match.index+match[0].length])}let out='',offset=0;for(const run of source){const end=offset+String(run.text||'').length,points=[offset,end];for(const [start,finish] of ranges){if(start>offset&&start<end)points.push(start);if(finish>offset&&finish<end)points.push(finish)}points.sort((a,b)=>a-b);for(let i=0;i<points.length-1;i++){const start=points[i],finish=points[i+1],value=flat.slice(start,finish),bold=!!run.bold||ranges.some(([x,y])=>x<finish&&y>start);out+=bold?'<strong>'+esc(value)+'</strong>':esc(value)}offset=end}return out}function renderRecipeStep(step){const original=stepText(step),label=stepLabel(step),remove=original.length-label.length;let skipped=0;const runs=(typeof step==='object'&&Array.isArray(step.runs)?step.runs:[{text:original,bold:false}]).map(run=>{const text=String(run.text||''),drop=Math.min(text.length,Math.max(0,remove-skipped));skipped+=text.length;return {...run,text:text.slice(drop)}});return renderRichText(runs,label,true)}
 function esc(s){return String(s??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]))}function fmt(d){return new Date(d).toLocaleString()}function render(){updateGoogleButtons();document.getElementById('newCook').hidden=!KEY;document.getElementById('googleBtn').hidden=!KEY;document.getElementById("recovery").hidden=!KEY;if(!KEY){
  document.getElementById('tabs').replaceChildren();
  document.getElementById('main').innerHTML='<section class="panel"><h2>You’re signed out</h2><p>Sign in to choose a recipe or resume your saved cooks.</p><button onclick="connectGoogle()">Sign in with Google</button></section>';return;
 }const cs=state.cooks.filter(c=>!c.closed);if(!cs.length){document.getElementById('tabs').innerHTML='';document.getElementById('main').innerHTML='<div class="panel"><h2>No active cooks</h2><p>Choose a recipe to start.</p><button onclick="showPicker()">Start a cook</button></div>';return}if(!active())state.active=cs[0].id;const c=active(),r=recipe(c);document.getElementById('tabs').innerHTML=cs.map(x=>`<button class="tab ${x.id===c.id?'active':''}" onclick="selectCook('${x.id}')">${esc(recipe(x).name)}</button>`).join('')+'<button class="tab" onclick="showPicker()">+ New</button>';
-const fullSource=r.fullLines?.length?`<section class="panel"><details id="sourceRecipe"><summary><b>Full master recipe (read-only)</b></summary><div class="source-lines">${r.fullLines.map(x=>/^(TITLE|SUBTITLE|HEADING_[1-6])$/.test(x.style)?`<h3>${renderRichText(x.runs,x.text)}</h3>`:`<p>${renderRichText(x.runs,x.text)}</p>`).join('')}</div></details></section>`:'';document.getElementById('main').innerHTML=`<section class="panel"><div class="muted">${esc(r.category)} · ${esc(r.status)}${r.version?' · '+esc(r.version):''} · ${esc(fmt(c.started))}${r.source==='Google'?' · Google Docs (read-only)':''}</div><h2>${esc(r.name)}</h2><div class="grid"><div class="metric"><span class="muted">Equipment</span><b style="font-size:14px">${esc(r.equipment)}</b></div><div class="metric"><span class="muted">Target</span><b style="font-size:14px">${esc(r.target)}</b></div><div class="metric"><span class="muted">${r.source==='Google'?'Serves / yield':'Serving'}</span><b style="font-size:14px">${esc(r.serve)}</b></div></div><div class="actions"><a href="${esc(r.url)}" target="_blank" rel="noopener"><button class="secondary">📖 Open master recipe</button></a></div></section><div class="layout"><div><section class="panel"><h2>Ingredients</h2>${r.ingredients.length?r.ingredients.map(x=>`<div class="step">${esc(x)}</div>`).join(''):'<p class="muted">See the full original recipe below for exact ingredients.</p>'}</section>${fullSource}</div><div><section class="panel"><h2>Cooking steps <span class="muted">${c.done.length}/${r.steps.length}</span></h2>${r.steps.map((s,i)=>`<label class="step ${c.done.includes(i)?'done':''}"><input type="checkbox" ${c.done.includes(i)?'checked':''} onchange="toggle(${i},this.checked)"><span>${renderRecipeStep(s)}</span></label>`).join('')}</section><div><section class="panel"><h2>Temperature log</h2><div class="muted">Actual readings only. Enter time, meat and/or cooker temperature.</div><canvas id="chart" width="650" height="260"></canvas><div class="formrow"><div><label>Time</label><input id="t" type="datetime-local"></div><div><label>Meat °F</label><input id="m" type="number" min="0" max="500" placeholder="165"></div><div><label>Cooker °F</label><input id="p" type="number" min="0" max="500" placeholder="225"></div><div><label>Stage</label><select id="st"><option>Big Joe</option><option>Pit Boss</option><option>Oven</option><option>Rest</option></select></div></div><div class="actions"><button onclick="addReading()">+ Log reading</button><button class="secondary" onclick="undoReading()">Undo last</button></div><div style="max-height:190px;overflow:auto"><table><thead><tr><th>Time</th><th>Meat</th><th>Cooker</th><th>Stage</th></tr></thead><tbody>${[...c.readings].reverse().map(x=>`<tr><td>${esc(new Date(x.time).toLocaleString())}</td><td>${x.meat??'—'}</td><td>${x.pit??'—'}</td><td>${esc(x.stage)}</td></tr>`).join('')}</tbody></table></div></section><section class="panel"><h2>Cook notes</h2><textarea id="notes" oninput="setNotes(this.value)" placeholder="Record bark, tenderness, family feedback...">${esc(c.notes)}</textarea></section><section class="panel"><h2>Ask ChatGPT</h2><p class="muted">Copies this recipe, progress, readings, and notes (including private recipe text if connected). Then opens ChatGPT in a new tab. Paste and send your question.</p><textarea id="ask" placeholder="What should I do next?"></textarea><div class="actions"><button onclick="handoff()">📋 Copy handoff & open ChatGPT</button></div></section></div></div><section class="panel"><h2>Finish this cook</h2><p class="muted">Closing the browser keeps this unfinished cook. Either finish option removes its browser copy. To keep a report, choose Save as PDF in the print dialog.</p><div class="actions"><button onclick="finishPDF()">📄 Save to PDF & finish</button><button class="secondary" onclick="finish(false)">Close without PDF</button></div></section>`;const draft=c.draft||{};
+const fullSource=r.fullLines?.length?`<section class="panel"><details id="sourceRecipe"><summary><b>Full master recipe (read-only)</b></summary><div class="source-lines">${r.fullLines.map(renderSourceLine).join('')}</div></details></section>`:'';document.getElementById('main').innerHTML=`<section class="panel"><div class="muted">${esc(r.category)} · ${esc(r.status)}${r.version?' · '+esc(r.version):''} · ${esc(fmt(c.started))}${r.source==='Google'?' · Google Docs (read-only)':''}</div><h2>${esc(r.name)}</h2><div class="grid"><div class="metric"><span class="muted">Equipment</span><b style="font-size:14px">${esc(r.equipment)}</b></div><div class="metric"><span class="muted">Target</span><b style="font-size:14px">${esc(r.target)}</b></div><div class="metric"><span class="muted">${r.source==='Google'?'Serves / yield':'Serving'}</span><b style="font-size:14px">${esc(r.serve)}</b></div></div><div class="actions"><a href="${esc(r.url)}" target="_blank" rel="noopener"><button class="secondary">📖 Open master recipe</button></a></div></section><div class="layout"><div><section class="panel"><h2>Ingredients</h2>${renderIngredients(r)}</section>${fullSource}</div><div><section class="panel"><h2>Cooking steps <span class="muted">${cookingProgress(r,c)}</span></h2>${renderCookingSteps(r,c)}</section><div><section class="panel"><h2>Temperature log</h2><div class="muted">Actual readings only. Enter time, meat and/or cooker temperature.</div><canvas id="chart" width="650" height="260"></canvas><div class="formrow"><div><label>Time</label><input id="t" type="datetime-local"></div><div><label>Meat °F</label><input id="m" type="number" min="0" max="500" placeholder="165"></div><div><label>Cooker °F</label><input id="p" type="number" min="0" max="500" placeholder="225"></div><div><label>Stage</label><select id="st"><option>Big Joe</option><option>Pit Boss</option><option>Oven</option><option>Rest</option></select></div></div><div class="actions"><button onclick="addReading()">+ Log reading</button><button class="secondary" onclick="undoReading()">Undo last</button></div><div style="max-height:190px;overflow:auto"><table><thead><tr><th>Time</th><th>Meat</th><th>Cooker</th><th>Stage</th></tr></thead><tbody>${[...c.readings].reverse().map(x=>`<tr><td>${esc(new Date(x.time).toLocaleString())}</td><td>${x.meat??'—'}</td><td>${x.pit??'—'}</td><td>${esc(x.stage)}</td></tr>`).join('')}</tbody></table></div></section><section class="panel"><h2>Cook notes</h2><textarea id="notes" oninput="setNotes(this.value)" placeholder="Record bark, tenderness, family feedback...">${esc(c.notes)}</textarea></section><section class="panel"><h2>Ask ChatGPT</h2><p class="muted">Copies this recipe, progress, readings, and notes (including private recipe text if connected). Then opens ChatGPT in a new tab. Paste and send your question.</p><textarea id="ask" placeholder="What should I do next?"></textarea><div class="actions"><button onclick="handoff()">📋 Copy handoff & open ChatGPT</button></div></section></div></div><section class="panel"><h2>Finish this cook</h2><p class="muted">Closing the browser keeps this unfinished cook. Either finish option removes its browser copy. To keep a report, choose Save as PDF in the print dialog.</p><div class="actions"><button onclick="finishPDF()">📄 Save to PDF & finish</button><button class="secondary" onclick="finish(false)">Close without PDF</button></div></section>`;const draft=c.draft||{};
  for(const id of ['t','m','p','st','ask']){
   const field=document.getElementById(id);
   const fallback=id==='t'?new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16):id==='st'?c.stage:'';
@@ -275,7 +367,7 @@ function recoverCooks(data){
   if(!r||!Array.isArray(r.steps)||!Array.isArray(r.ingredients))throw Error('This backup lacks the original recipe checklist.');
   if(!r.url || !/^https:\/\/docs\.google\.com\/document\/d\/[a-zA-Z0-9_-]+(?:\/|$)/.test(r.url))throw Error('Invalid recipe link.');
   if(!c.readings.every(x=>Number.isFinite(Date.parse(x.time))&&[x.meat,x.pit].every(n=>n===null||Number.isFinite(n))))throw Error('Invalid temperature log.');
-  return {...c,snapshot:r,done:c.done.filter(Number.isInteger),notes:String(c.notes||'')};
+  return repairCookSnapshot({...c,snapshot:r,done:[...new Set(c.done.filter(index=>Number.isInteger(index)&&index>=0&&index<r.steps.length))],notes:String(c.notes||'')});
  });
 }
 async function backup(){await writeQueue;if(!KEY)return;const data=readCooks(KEY);const blob=new Blob([JSON.stringify({exported:new Date().toISOString(),state:data,recipes},null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='lenockers-kitchen-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}async function restoreBackup(input){
@@ -315,3 +407,4 @@ async function start(id){
 document.addEventListener('visibilitychange',()=>{if(!document.hidden && oauthToken && Date.now()>=oauthExpiresAt)expireAccess()});
 render();
 </script></body></html>
+
