@@ -115,7 +115,7 @@ async function loadGoogleIndex(){
   const col=key=>header.findIndex(h=>String(h).trim().toLowerCase()===key.toLowerCase());
   const nameCol=col('Recipe'),urlCol=col('Google Doc');if(nameCol<0||urlCol<0)throw new Error('The index must have Recipe and Google Doc columns.');
   const cell=(row,key)=>String(row[col(key)]??'').trim();
-  const timeCell=(row,key)=>{const value=cell(row,key);if(!/^(0|[1-9]\d*)$/.test(value))return null;const minutes=Number(value);return Number.isSafeInteger(minutes)&&minutes<=100000?minutes:null;};
+  const timeCell=(row,key)=>parseRecipeTime(cell(row,key));
   let missing=0;
   remoteRecipes=rows.map(row=>{
    const name=String(row[nameCol]||'').trim(),id=docIdFromUrl(row[urlCol]);
@@ -225,8 +225,29 @@ async function loadGoogleDocument(meta){
 }
 
 function timingMinutes(value){return Number.isSafeInteger(value)&&value>=0&&value<=100000?value:null;}
-function formatRecipeMinutes(value){const minutes=timingMinutes(value);if(minutes===null)return 'Not specified';const hours=Math.floor(minutes/60),remaining=minutes%60;return hours?(remaining?hours+' hr '+remaining+' min':hours+' hr'):minutes+' min';}
-function renderRecipeTiming(r){const t=r&&r.timing&&typeof r.timing==='object'?r.timing:{};const parts=[['Prep',t.prep],['Cook',t.cook],['Rest / Wait',t.rest]].filter(([label,value])=>label!=='Rest / Wait'||timingMinutes(value)!==null);return '<div class="metric timing-metric"><span class="muted">Total Time</span><b class="timing-total">'+esc(formatRecipeMinutes(t.total))+'</b>'+parts.map(([label,value])=>'<div class="timing-detail"><span>'+esc(label)+'</span><span>'+esc(formatRecipeMinutes(value))+'</span></div>').join('')+'</div>';}
+// Keep numeric minutes compatible with existing recipes and saved cooks; ranges use two endpoints.
+function timingRange(value){
+ if(!Array.isArray(value)||value.length!==2)return null;
+ const [min,max]=value.map(timingMinutes);
+ return min!==null&&max!==null&&min<max?[min,max]:null;
+}
+function parseRecipeTime(text){
+ const match=/^(0|[1-9]\d*)(?:\s*[-–—]\s*(0|[1-9]\d*))?$/.exec(text.trim());
+ if(!match)return null;
+ const min=timingMinutes(Number(match[1]));
+ if(match[2]===undefined)return min;
+ const max=timingMinutes(Number(match[2]));
+ return min!==null&&min===max?min:timingRange([min,max]);
+}
+function formatRecipeMinutes(value){
+ const range=timingRange(value);
+ if(range)return range[0]<60?range.join('–')+' min':range.map(formatRecipeMinutes).join(' – ');
+ const minutes=timingMinutes(value);
+ if(minutes===null)return 'Not specified';
+ const hours=Math.floor(minutes/60),remaining=minutes%60;
+ return hours?(remaining?hours+' hr '+remaining+' min':hours+' hr'):minutes+' min';
+}
+function renderRecipeTiming(r){const t=r&&r.timing&&typeof r.timing==='object'?r.timing:{};const parts=[['Prep',t.prep],['Cook',t.cook],['Rest / Wait',t.rest]].filter(([label,value])=>label!=='Rest / Wait'||timingMinutes(value)!==null||timingRange(value)!==null);return '<div class="metric timing-metric"><span class="muted">Total Time</span><b class="timing-total">'+esc(formatRecipeMinutes(t.total))+'</b>'+parts.map(([label,value])=>'<div class="timing-detail"><span>'+esc(label)+'</span><span>'+esc(formatRecipeMinutes(value))+'</span></div>').join('')+'</div>';}
 function renderIngredients(r){
  if(!r.ingredients.length)return '<p class="muted">See the full original recipe below for exact ingredients.</p>';
  const candidates=Array.isArray(r.ingredientBlocks)?r.ingredientBlocks:[];
