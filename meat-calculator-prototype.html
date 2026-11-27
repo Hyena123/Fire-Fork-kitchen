@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meat Calculator — Fire-Fork Prototype</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;margin:0;background:#f6f6f3;color:#20251d}main{max-width:640px;margin:32px auto;padding:20px}section{background:white;border:1px solid #cbd0c5;border-radius:14px;padding:20px;margin:16px 0}h1{margin:0}label{display:block;font-weight:600;margin:14px 0 5px}input,select{box-sizing:border-box;width:100%;font:inherit;padding:10px;border:1px solid #76806f;border-radius:8px}input:focus,select:focus{outline:3px solid #9dc9a7}table{width:100%;border-collapse:collapse}th,td{text-align:left;border-bottom:1px solid #d8ded4;padding:9px 3px}td:last-child{text-align:right}p{margin:7px 0}.muted{color:#505b4f}.notice{border-left:4px solid #8e9c7c;padding:10px;background:#f0f4ea}@media(max-width:480px){main{margin:8px auto;padding:8px}section{padding:14px}}</style></head>
+<body><main><h1>Meat Calculator</h1><p class="muted">Development prototype · synthetic seasoning example only · no private recipes</p>
+<section><label for="cut">Meat / method</label><select id="cut"><option value="pork-steak">Pork shoulder steak</option><option value="chicken-wings">Chicken wings</option><option value="brisket">Whole brisket</option></select>
+<label for="reference">Recipe reference weight (lb)</label><input type="number" id="reference" min="0.1" max="200" step="0.1" value="4">
+<label for="actual">My meat weight (lb)</label><input type="number" id="actual" min="0.1" max="200" step="0.1" value="4">
+<label for="thickness">Meat thickness (in)</label><input type="number" id="thickness" min="0.2" max="4" step="0.05" value="0.33">
+</section><section aria-live="polite" id="output"></section><p class="muted">No actual temperature measurements or cook records are modified. Salt/brining recipes need separate review; only the example seasonings scale here.</p></main>
+<script src="./meat-calculator-core.js"></script><script>
+(()=>{"use strict";
+const sample=[{name:"Demo spice A",amount:2,unit:"tsp"},{name:"Demo spice B",amount:1,unit:"Tbls"}];
+const esc=s=>String(s).replace(/[&<>"']/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
+function render(){const a=document.getElementById("reference").value,b=document.getElementById("actual").value,c=document.getElementById("cut").value,t=document.getElementById("thickness").value;
+const result=FireForkMeatCalculator.scaleSeasonings(sample,a,b),guide=FireForkMeatCalculator.cookingGuidance(c,t),el=document.getElementById("output");
+if(result.error||guide.error){el.textContent=result.error||guide.error;return;}
+el.innerHTML='<h2>Suggested seasoning scale: '+result.factor+'×</h2><table><thead><tr><th>Example seasoning</th><th>Scaled quantity</th></tr></thead><tbody>'+result.items.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+x.amount+' '+esc(x.unit)+'</td></tr>').join('')+'</tbody></table><h2>Cooking guidance</h2><p class="notice">'+esc(guide.message)+'</p><p class="muted">Times are not multiplied by weight. Verify actual temperature and tenderness.</p>';}
+for(const id of ["reference","actual","cut","thickness"])document.getElementById(id).addEventListener("input",render);
+render();
+})();
+</script></body></html>
