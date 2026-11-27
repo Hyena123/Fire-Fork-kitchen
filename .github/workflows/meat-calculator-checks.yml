@@ -1,0 +1,19 @@
+name: Meat calculator development checks
+on:
+  push:
+    branches:
+      - feature/meat-calculator-2026-11-27
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/meat-calculator.test.cjs
